@@ -98,7 +98,16 @@ module Close = struct
                 Monitor.protect
                   ~run:`Schedule
                   ~finally:(fun () ->
-                    In_thread.syscall_exn ~name:"close" (fun () -> Unix.close t.file_descr))
+                    match%map
+                      Monitor.try_with ~extract_exn:true (fun () ->
+                        In_thread.syscall_exn ~name:"close" (fun () ->
+                          Unix.close t.file_descr))
+                    with
+                    | Error (Unix.Unix_error (ECONNRESET, _, _)) -> ()
+                    | Error exn ->
+                      let backtrace = Backtrace.get () in
+                      Exn.raise_with_original_backtrace exn backtrace
+                    | Ok () -> ())
                   (fun () ->
                      match t.kind, socket_handling with
                      | Socket `Active, Shutdown_socket ->
