@@ -158,7 +158,16 @@ module Close = struct
               | Close_file_descriptor socket_handling ->
                 Monitor.protect
                   ~run:`Schedule
-                  ~finally:(fun () -> close_syscall t.file_descr)
+                  ~finally:(fun () ->
+                    match%map
+                      Monitor.try_with ~extract_exn:true (fun () ->
+                        close_syscall t.file_descr)
+                    with
+                    | Error (Unix.Unix_error (ECONNRESET, _, _)) -> ()
+                    | Error exn ->
+                      let backtrace = Backtrace.get () in
+                      Exn.raise_with_original_backtrace exn backtrace
+                    | Ok () -> ())
                   (fun () ->
                     match t.kind, socket_handling with
                     | Socket `Active, Shutdown_socket ->
